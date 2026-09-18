@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """Prepare decimated cardiac surfaces for LDDMM registration.
 
-This adapts the surface-processing operations used by the KCL cohort code:
-https://github.com/MaciejPMarciniak/CardiacShapeModel/blob/master/Mesh.py
-
-KCL operations retained here:
-  * vtkDataSetSurfaceFilter
-  * vtkCleanPolyData with a 1e-6 tolerance
-  * vtkQuadricDecimation with volume preservation
-  * vtkPolyDataWriter
 
 Run this script from the TemplateMethod directory. By default it processes only
-01.vtk, so the first surface can be inspected before processing the cohort.
+16.vtk, so the fixed-template surface can be inspected before processing the cohort.
 """
 
 from __future__ import annotations
@@ -24,9 +16,9 @@ from pathlib import Path
 import vtk
 
 
-DEFAULT_INPUT_DIR = Path("ICPAlignedVtk")
-DEFAULT_OUTPUT_DIR = Path("LDDMMSurfaces")
-DEFAULT_CASE = "01.vtk"
+DEFAULT_INPUT_DIR = Path("ICPAlignedVtkTemplate16")
+DEFAULT_OUTPUT_DIR = Path("LDDMMSurfacesTemplate16")
+DEFAULT_CASE = "16.vtk"
 DEFAULT_TARGET_TRIANGLES = 10_000
 DEFAULT_CLEAN_TOLERANCE = 1e-6
 

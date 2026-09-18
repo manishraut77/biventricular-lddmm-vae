@@ -3,3 +3,12 @@ KCL Dataset/
 AlignedVtkData/
 Final Dataset/
 LDDMMSurfaces/
+CT_original/
+MixedCohort/
+ICPAlignedVtkTemplate16/
+LDDMMRegisteredTemplate16/
+LDDMMSurfacesTemplate16/
+MomentumVAE/Template16GraphBetaVAE/
+SyntheticHearts/
+__pycache__/
+

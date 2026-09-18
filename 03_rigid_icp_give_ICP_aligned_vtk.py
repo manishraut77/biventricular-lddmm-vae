@@ -4,7 +4,7 @@
 Default folder layout (run this script from the project directory):
 
     ./AlignedVtkData/01.vtk ... 20.vtk
-    ./ICPAlignedVtk/             # created by this script
+    ./ICPAlignedVtkTemplate16/   # created by this script
 
 Only a cleaned, decimated surface copy is used to estimate each ICP transform.
 The resulting rotation and translation are then applied to every point in the
@@ -231,11 +231,13 @@ def parse_args() -> argparse.Namespace:
         description="Rigidly align all VTK hearts to one fixed template."
     )
     parser.add_argument("--input-dir", type=Path, default=Path("AlignedVtkData"))
-    parser.add_argument("--output-dir", type=Path, default=Path("ICPAlignedVtk"))
+    parser.add_argument(
+        "--output-dir", type=Path, default=Path("ICPAlignedVtkTemplate16")
+    )
     parser.add_argument(
         "--template",
-        default="01.vtk",
-        help="Template filename inside --input-dir (default: 01.vtk)",
+        default="16.vtk",
+        help="Template filename inside --input-dir (default: 16.vtk)",
     )
     parser.add_argument(
         "--surface-triangles",

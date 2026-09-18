@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Train a compact graph beta-VAE on Deformetrica control-point momenta.
 
-Designed for the fixed-template, multi-object LDDMM output in:
-    LDDMMAtlas/LabeledFull/output
+Designed for the fixed-subject-16 combined LV+RV dataset in:
+    LDDMMRegisteredTemplate16/trainingdata/momenta_dataset.npz
 
 The common control points define a k-nearest-neighbour graph. Each subject is
 one [control_points, 3] momentum field. The VAE uses graph convolutions to
-encode local spatial relationships and a coordinate-conditioned graph decoder
+encode local spatial relationships and a  graph decoder
 to reconstruct or generate momentum fields.
 
-With 20 subjects this is an end-to-end prototype, not a population model.
-The script therefore also reports a PCA baseline using the identical split.
+All 20 subjects are used for fitting. Reported reconstruction errors are
+training errors only;
 """
 
 from __future__ import annotations
@@ -41,26 +41,34 @@ def parse_args() -> argparse.Namespace:
         description="Graph beta-VAE for shared-grid LDDMM momentum fields."
     )
     parser.add_argument(
-        "--atlas-dir", type=Path, default=Path("LDDMMAtlas/LabeledFull"),
-        help="Directory containing model.xml, data_set.xml, and output/.",
+        "--dataset",
+        type=Path,
+        default=Path("LDDMMRegisteredTemplate16/trainingdata/momenta_dataset.npz"),
+        help="Combined-atlas NPZ containing subject_ids, control_points, and momenta.",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("MomentumVAE/GraphBetaVAE")
+        "--output-dir", type=Path, default=Path("MomentumVAE/Template16GraphBetaVAE")
     )
-    parser.add_argument("--latent-dim", type=int, default=4)
-    parser.add_argument("--hidden-dim", type=int, default=48)
-    parser.add_argument("--neighbors", type=int, default=12)
+    parser.add_argument("--latent-dim", type=int, default=3)
+    parser.add_argument("--hidden-dim", type=int, default=24)
+    parser.add_argument("--neighbors", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=1500)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
-    parser.add_argument("--beta", type=float, default=1e-3)
+    parser.add_argument("--beta", type=float, default=1e-4)
     parser.add_argument("--kl-warmup-epochs", type=int, default=250)
     parser.add_argument("--input-noise", type=float, default=0.02)
-    parser.add_argument("--validation-fraction", type=float, default=0.15)
-    parser.add_argument("--test-fraction", type=float, default=0.15)
     parser.add_argument("--patience", type=int, default=250)
-    parser.add_argument("--generated-samples", type=int, default=20)
+    parser.add_argument(
+        "--generated-samples",
+        type=int,
+        default=0,
+        help=(
+            "Legacy convenience option. Keep at 0 and use "
+            "07_sample_template16_graph_momenta_vae.py after training."
+        ),
+    )
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
@@ -166,15 +174,18 @@ def build_knn(control_points: np.ndarray, neighbors: int, chunk_size: int = 256)
     n_points = control_points.shape[0]
     if not 1 <= neighbors < n_points:
         raise ValueError(f"--neighbors must be between 1 and {n_points - 1}")
-    squared_norms = np.sum(control_points * control_points, axis=1)
+    # Translation does not change distances and centering avoids overflow or
+    # cancellation when coordinates have a large global offset.
+    stable_points = control_points.astype(np.float64) - control_points.mean(axis=0)
+    squared_norms = np.sum(stable_points * stable_points, axis=1)
     result = np.empty((n_points, neighbors + 1), dtype=np.int64)
     for start in range(0, n_points, chunk_size):
         stop = min(start + chunk_size, n_points)
-        block = control_points[start:stop]
+        block = stable_points[start:stop]
         distances = (
             np.sum(block * block, axis=1, keepdims=True)
             + squared_norms[None, :]
-            - 2.0 * block @ control_points.T
+            - 2.0 * block @ stable_points.T
         )
         np.maximum(distances, 0.0, out=distances)
         selected = np.argpartition(distances, kth=neighbors, axis=1)[:, : neighbors + 1]
@@ -360,12 +371,6 @@ def main() -> int:
         raise ValueError("--latent-dim must be positive")
     if args.hidden_dim < 16:
         raise ValueError("--hidden-dim must be at least 16")
-    if not 0.0 <= args.validation_fraction < 0.5:
-        raise ValueError("--validation-fraction must be in [0, 0.5)")
-    if not 0.0 <= args.test_fraction < 0.5:
-        raise ValueError("--test-fraction must be in [0, 0.5)")
-    if args.validation_fraction + args.test_fraction >= 0.6:
-        raise ValueError("Validation plus test fraction is too large")
     if args.generated_samples < 0:
         raise ValueError("--generated-samples cannot be negative")
 
@@ -373,19 +378,31 @@ def main() -> int:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    output_source = args.atlas_dir / "output"
-    control_path = find_single_file(output_source, "ControlPoints")
-    momenta_path = find_single_file(output_source, "Momenta")
-    data_set_path = args.atlas_dir / "data_set.xml"
-    model_path = args.atlas_dir / "model.xml"
+    if not args.dataset.is_file():
+        raise FileNotFoundError(f"Dataset not found: {args.dataset}")
+    with np.load(args.dataset, allow_pickle=False) as dataset:
+        required = {"subject_ids", "control_points", "momenta"}
+        missing = required.difference(dataset.files)
+        if missing:
+            raise ValueError(
+                f"{args.dataset} is missing required arrays: {sorted(missing)}"
+            )
+        subject_ids = [str(value) for value in dataset["subject_ids"].tolist()]
+        control_points = np.asarray(dataset["control_points"], dtype=np.float64)
+        momenta = np.asarray(dataset["momenta"], dtype=np.float64)
+        deformation_kernel_width = None
+        if "deformation_kernel_width" in dataset.files:
+            deformation_kernel_width = float(
+                np.asarray(dataset["deformation_kernel_width"]).reshape(-1)[0]
+            )
 
-    subject_ids = read_subject_ids(data_set_path)
-    control_points = np.atleast_2d(np.loadtxt(control_path, dtype=np.float64))
     if control_points.ndim != 2 or control_points.shape[1] != 3:
         raise ValueError(f"Control points have invalid shape {control_points.shape}")
-    momenta = read_momenta(
-        momenta_path, len(subject_ids), control_points.shape[0]
-    )
+    expected_momenta_shape = (len(subject_ids), control_points.shape[0], 3)
+    if momenta.shape != expected_momenta_shape:
+        raise ValueError(
+            f"Momenta have shape {momenta.shape}; expected {expected_momenta_shape}"
+        )
     if not np.isfinite(control_points).all() or not np.isfinite(momenta).all():
         raise ValueError("Control points or momenta contain NaN/Inf")
 
@@ -395,20 +412,8 @@ def main() -> int:
     if args.latent_dim >= subject_count:
         raise ValueError("Latent dimension must be smaller than subject count")
 
-    generator = np.random.default_rng(args.seed)
-    permutation = generator.permutation(subject_count)
-    validation_count = max(1, int(round(subject_count * args.validation_fraction)))
-    test_count = max(1, int(round(subject_count * args.test_fraction)))
-    if subject_count - validation_count - test_count < 5:
-        raise ValueError("The requested split leaves fewer than five training subjects")
-    test_indices = np.sort(permutation[:test_count])
-    validation_indices = np.sort(permutation[test_count : test_count + validation_count])
-    train_indices = np.sort(permutation[test_count + validation_count :])
-    split_indices = {
-        "train": train_indices,
-        "validation": validation_indices,
-        "test": test_indices,
-    }
+    train_indices = np.arange(subject_count, dtype=np.int64)
+    split_indices = {"train": train_indices}
 
     coordinate_center = control_points.mean(axis=0)
     coordinate_scale = control_points.std(axis=0)
@@ -428,35 +433,19 @@ def main() -> int:
     print(f"Subjects:       {subject_count}")
     print(f"Control points: {control_points.shape[0]:,}")
     print(f"Momenta tensor: {momenta.shape}")
-    print(
-        f"Split:          train={len(train_indices)}, "
-        f"validation={len(validation_indices)}, test={len(test_indices)}"
-    )
+    print(f"Fit cohort:     all {len(train_indices)} subjects (no held-out split)")
+    print("Metric scope:   training reconstruction only")
     print("Building control-point kNN graph ...")
     neighbor_indices = build_knn(control_points, args.neighbors)
 
     device = choose_device(args.device)
     print(f"Device:         {device}")
     train_tensor = torch.from_numpy(normalized_momenta[train_indices])
-    validation_tensor = torch.from_numpy(normalized_momenta[validation_indices])
-    test_tensor = torch.from_numpy(normalized_momenta[test_indices])
     pin_memory = device.type == "cuda"
     train_loader = DataLoader(
         TensorDataset(train_tensor),
         batch_size=min(args.batch_size, len(train_tensor)),
         shuffle=True,
-        pin_memory=pin_memory,
-    )
-    validation_loader = DataLoader(
-        TensorDataset(validation_tensor),
-        batch_size=min(args.batch_size, len(validation_tensor)),
-        shuffle=False,
-        pin_memory=pin_memory,
-    )
-    test_loader = DataLoader(
-        TensorDataset(test_tensor),
-        batch_size=min(args.batch_size, len(test_tensor)),
-        shuffle=False,
         pin_memory=pin_memory,
     )
 
@@ -495,15 +484,17 @@ def main() -> int:
             optimizer.step()
 
         train_mse, train_kl = evaluate(model, train_loader, device)
-        validation_mse, validation_kl = evaluate(model, validation_loader, device)
+        # All subjects are deliberately used for fitting. This value is a
+        # deterministic training reconstruction monitor, not validation loss.
+        validation_mse, validation_kl = evaluate(model, train_loader, device)
         history.append(
             {
                 "epoch": epoch,
                 "beta": beta,
                 "train_mse": train_mse,
                 "train_kl": train_kl,
-                "validation_mse": validation_mse,
-                "validation_kl": validation_kl,
+                "fit_mse": validation_mse,
+                "fit_kl": validation_kl,
             }
         )
 
@@ -520,7 +511,7 @@ def main() -> int:
         if epoch == 1 or epoch % 25 == 0:
             print(
                 f"epoch {epoch:4d}: train MSE={train_mse:.6f}; "
-                f"validation MSE={validation_mse:.6f}; "
+                f"fit MSE={validation_mse:.6f}; "
                 f"KL={validation_kl:.6f}; beta={beta:.6g}"
             )
         if stale_epochs >= args.patience:
@@ -532,11 +523,7 @@ def main() -> int:
     model.load_state_dict(best_state)
     model.to(device)
 
-    split_loaders = {
-        "train": train_loader,
-        "validation": validation_loader,
-        "test": test_loader,
-    }
+    split_loaders = {"train": train_loader}
     vae_metrics: dict[str, dict[str, float]] = {}
     for split_name, loader in split_loaders.items():
         mse, kl = evaluate(model, loader, device)
@@ -607,7 +594,7 @@ def main() -> int:
         "subject_ids": subject_ids,
         "split": split_by_index.tolist(),
         "seed": args.seed,
-        "deformation_kernel_width": read_deformation_kernel_width(model_path),
+        "deformation_kernel_width": deformation_kernel_width,
     }
     checkpoint_path = args.output_dir / "graph_momenta_beta_vae.pt"
     torch.save(checkpoint, checkpoint_path)
@@ -657,8 +644,8 @@ def main() -> int:
 
     metrics = {
         "warning": (
-            "Twenty subjects are enough to test the pipeline, not to establish "
-            "generalization or population-level generation."
+            f"All {subject_count} subjects were used for fitting. Metrics are "
+            "training reconstruction metrics and do not establish generalization."
         ),
         "subjects": subject_count,
         "control_points": int(control_points.shape[0]),
@@ -669,21 +656,20 @@ def main() -> int:
         },
         "vae": vae_metrics,
         "pca_normalized_rmse_same_latent_dimension": pca_metrics,
-        "best_validation_normalized_mse": best_validation_mse,
+        "best_fit_normalized_mse": best_validation_mse,
         "epochs_completed": len(history),
-        "source_control_points": str(control_path),
-        "source_momenta": str(momenta_path),
+        "source_dataset": str(args.dataset),
     }
     with (args.output_dir / "metrics.json").open("w", encoding="utf-8") as handle:
         json.dump(metrics, handle, indent=2)
         handle.write("\n")
 
     print("\nTraining complete")
-    print(f"Best validation normalized MSE: {best_validation_mse:.6f}")
+    print(f"Best fit normalized MSE: {best_validation_mse:.6f}")
     print(
-        "Test normalized RMSE: "
-        f"VAE={vae_metrics['test']['normalized_rmse']:.6f}; "
-        f"PCA={pca_metrics['test']:.6f}"
+        "Training reconstruction normalized RMSE: "
+        f"VAE={vae_metrics['train']['normalized_rmse']:.6f}; "
+        f"PCA={pca_metrics['train']:.6f}"
     )
     print(f"Checkpoint:     {checkpoint_path}")
     print(f"Metrics:        {args.output_dir / 'metrics.json'}")
