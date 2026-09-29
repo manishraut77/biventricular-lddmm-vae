@@ -12,3 +12,13 @@ MomentumVAE/Template16GraphBetaVAE/
 SyntheticHearts/
 __pycache__/
 
+# CT data and pipeline outputs
+/0.00_CT_original/
+/02.1_CenteredCT/
+/03.1_ICPAlignedCT55/
+/04.1_CTRegistrationSurfaces/
+/05.1_CTRegistered/
+/05.2_Momenta/
+/06.1_CT55GraphVAE*/
+/07.1_Generated*/
+/08.1_DiversityDiagnostics*/
