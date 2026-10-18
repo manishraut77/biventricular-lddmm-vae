@@ -1,24 +1,13 @@
-ICPAlignedVtk/
-KCL Dataset/
-AlignedVtkData/
-Final Dataset/
-LDDMMSurfaces/
-CT_original/
-MixedCohort/
-ICPAlignedVtkTemplate16/
-LDDMMRegisteredTemplate16/
-LDDMMSurfacesTemplate16/
-MomentumVAE/Template16GraphBetaVAE/
-SyntheticHearts/
-__pycache__/
 
-# CT data and pipeline outputs
-/0.00_CT_original/
-/02.1_CenteredCT/
-/03.1_ICPAlignedCT55/
-/04.1_CTRegistrationSurfaces/
-/05.1_CTRegistered/
-/05.2_Momenta/
-/06.1_CT55GraphVAE*/
-/07.1_Generated*/
-/08.1_DiversityDiagnostics*/
+/*
+
+
+!/.gitignore
+!/README.md
+!/01_collectmeshes.py
+!/02_center_ct_vtu.py
+!/03_rigid_align_ct_to_55.py
+!/04_extract_ct_surfaces.py
+!/05_register_ct55_all.py
+!/06_fit_ct55_graph_vae_all.py
+!/07_generate_ct55_hearts_v4.py

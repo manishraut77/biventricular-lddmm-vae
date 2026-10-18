@@ -111,12 +111,12 @@ Let $N=61$, $M=1404$, and let $p_i\in\mathbb{R}^{M\times3}$ be subject $i$'s mom
 $$
 \bar p=\frac{1}{N}\sum_{i=1}^{N}p_i,
 \qquad
-s_p=\sqrt{\frac{1}{3NM}\sum_{i=1}^{N}\|p_i-\bar p\|_F^2},
+s_p=\sqrt{\frac{1}{3NM}\sum_{i=1}^{N}\lVert p_i-\bar p\rVert_F^2},
 \qquad
 x_i=\frac{p_i-\bar p}{s_p}.
 $$
 
-Here, $\|\cdot\|_F^2$ sums the squared entries of a field. The mean is a full $M\times3$ field, and $s_p$ is one shared scalar. Control-point coordinates are separately centered and divided by one scalar RMS computed over all $3M$ centered coordinate components. These are invertible network transformations; heart size is retained.
+Here, $\lVert \cdot\rVert_F^2$ sums the squared entries of a field. The mean is a full $M\times3$ field, and $s_p$ is one shared scalar. Control-point coordinates are separately centered and divided by one scalar RMS computed over all $3M$ centered coordinate components. These are invertible network transformations; heart size is retained.
 
 ### Graph encoder and decoder
 
@@ -124,7 +124,7 @@ Each node represents a shared control point, with six input features: three norm
 
 $$
 g_v=W_{\mathrm{self}}h_v+b+
-W_{\mathrm{neighbor}}\left(\frac{1}{12}\sum_{u\in\mathcal N(v)}h_u\right).
+W_{\mathrm{neighbor}}\left(\frac{1}{12}\sum_{u\in\mathcal{N}(v)}h_u\right).
 $$
 
 Residual blocks apply layer normalization, GELU, and dropout to this update, then add a shortcut. Three encoder blocks and global mean/max pooling produce a latent mean $\mu_i$ and log variance $\ell_i$, with $\ell_i$ clipped to $[-10,6]$.
@@ -132,13 +132,13 @@ Residual blocks apply layer normalization, GELU, and dropout to this update, the
 For an encoder input $u_i$:
 
 $$
-q_\phi(z\mid u_i)=\mathcal N\!\left(\mu_i,\operatorname{diag}(e^{\ell_i})\right),
+q_\phi(z\mid u_i)=\mathcal{N}\left(\mu_i,\mathrm{diag}(e^{\ell_i})\right),
 \qquad
 z_i=\mu_i+e^{\ell_i/2}\odot\epsilon_i,
-\quad \epsilon_i\sim\mathcal N(0,I_d).
+\quad \epsilon_i\sim\mathcal{N}(0,I_d).
 $$
 
-Exponentials and $\odot$ act elementwise. Training uses noisy inputs $u_i=x_i+\eta_i$, where $\eta_i\sim\mathcal N(0,0.005^2I)$, while reconstruction targets stay clean. Evaluation uses $u_i=x_i$.
+Exponentials and $\odot$ act elementwise. Training uses noisy inputs $u_i=x_i+\eta_i$, where $\eta_i\sim\mathcal{N}(0,0.005^2I)$, while reconstruction targets stay clean. Evaluation uses $u_i=x_i$.
 
 The decoder receives the latent vector at every node, together with normalized coordinates and sine/cosine position features at frequencies $1,2,4$, using arguments $\pi f c$. Two dense layers and two graph blocks predict a normalized field $\hat x_i=D_\theta(z_i)$. Physical momenta are recovered by $\hat p_i=\bar p+s_p\hat x_i$. Deterministic reconstruction uses $z_i=\mu_i$.
 
@@ -148,7 +148,7 @@ Let $B$ be the current batch size and $d$ the latent dimension. Reconstruction l
 
 $$
 \mathcal L_{\mathrm{rec}}=
-\frac{1}{3BM}\sum_{i=1}^{B}\|\hat x_i-x_i\|_F^2.
+\frac{1}{3BM}\sum_{i=1}^{B}\lVert \hat x_i-x_i\rVert_F^2.
 $$
 
 For KL regularization, the code first averages each latent dimension over the batch, then applies a floor of 0.1 nats before summing:
@@ -168,12 +168,12 @@ $$
 m=\frac{1}{B}\sum_{i=1}^{B}\mu_i,
 \qquad
 C=\frac{1}{B}\sum_{i=1}^{B}(\mu_i-m)(\mu_i-m)^T
-+\operatorname{diag}\left(\frac{1}{B}\sum_{i=1}^{B}e^{\ell_i}\right),
++\mathrm{diag}\left(\frac{1}{B}\sum_{i=1}^{B}e^{\ell_i}\right),
 $$
 
 $$
 \mathcal L_{\mathrm{moment}}=
-\frac{\|m\|_2^2}{d}+\frac{\|C-I_d\|_F^2}{d^2}.
+\frac{\lVert m\rVert_2^2}{d}+\frac{\lVert C-I_d\rVert_F^2}{d^2}.
 $$
 
 With the default loss settings, the objective at epoch $t$ is:
@@ -207,7 +207,7 @@ m_{\mathrm{agg}}=\frac{1}{N}\sum_{i=1}^{N}\mu_i,
 z_T=m_{\mathrm{agg}}+T(z_0-m_{\mathrm{agg}}).
 $$
 
-Here $\epsilon\sim\mathcal N(0,I_d)$, and $T=1$ samples the fitted mixture. Decode $\hat p=\bar p+s_pD_\theta(z_T)$, then shoot the CT55 surface and volume with LDDMM.
+Here $\epsilon\sim\mathcal{N}(0,I_d)$, and $T=1$ samples the fitted mixture. Decode $\hat p=\bar p+s_pD_\theta(z_T)$, then shoot the CT55 surface and volume with LDDMM.
 
 For a candidate basal plane with unit normal $n$ and offset $a$, the generator evaluates the affine level set:
 
