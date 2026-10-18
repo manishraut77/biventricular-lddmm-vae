@@ -107,7 +107,7 @@ def center_file(source, target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--input-dir', type=Path, default=Path('MixedCohort'))
+    parser.add_argument('--input-dir', type=Path, default=Path('01.1_Meshes'))
     parser.add_argument('--output-dir', type=Path, default=Path('02.1_CenteredCT'))
     parser.add_argument('--expected-count', type=int, default=61)
     args = parser.parse_args()
